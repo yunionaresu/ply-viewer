@@ -15,11 +15,21 @@
         
         #close-btn { position: absolute; top: 20px; right: 20px; padding: 10px 20px; font-size: 16px; background-color: rgba(255, 255, 255, 0.2); color: white; border: none; border-radius: 8px; display: none; z-index: 10; backdrop-filter: blur(5px); cursor: pointer; }
         #viewer-container { width: 100vw; height: 100vh; display: none; }
+
+        /* カスタムローディング画面 */
+        #loading-ui {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: rgba(17, 17, 17, 0.95); z-index: 20;
+            display: none; flex-direction: column; justify-content: center; align-items: center;
+        }
+        .progress-container { width: 70%; max-width: 400px; height: 12px; background-color: #333; border-radius: 6px; overflow: hidden; margin-top: 15px; }
+        .progress-fill { width: 0%; height: 100%; background-color: #4cd964; transition: width 0.1s ease; }
+        #progress-text { margin-top: 15px; font-size: 18px; font-weight: bold; color: #4cd964; font-variant-numeric: tabular-nums; }
+        #progress-message { margin-top: 10px; font-size: 13px; color: #888; text-align: center; }
     </style>
 </head>
 <body>
     <div id="ui-container">
-        <!-- .spz 形式を最優先で受付 -->
         <label for="file-input" class="btn">立体写真 (.spz / .splat) を開く</label>
         <input type="file" id="file-input" accept=".ply,.splat,.spz">
         <p style="margin-top: 20px; color: #aaa; font-size: 14px; text-align: center; line-height: 1.5;">
@@ -27,6 +37,14 @@
         </p>
     </div>
     
+    <!-- 独自のプログレスバー画面 -->
+    <div id="loading-ui">
+        <div style="font-size: 22px; font-weight: bold; color: #fff;">データを処理中...</div>
+        <div class="progress-container"><div class="progress-fill" id="progress-fill"></div></div>
+        <div id="progress-text">0%</div>
+        <div id="progress-message">端末の性能によっては数分かかる場合があります。</div>
+    </div>
+
     <button id="close-btn" onclick="location.reload()">別のファイルを開く</button>
     <div id="viewer-container"></div>
 
@@ -46,48 +64,84 @@
         const uiContainer = document.getElementById('ui-container');
         const viewerContainer = document.getElementById('viewer-container');
         const closeBtn = document.getElementById('close-btn');
+        
+        // ローディング用UI要素
+        const loadingUi = document.getElementById('loading-ui');
+        const progressFill = document.getElementById('progress-fill');
+        const progressText = document.getElementById('progress-text');
+
+        // フリーズ検知用タイマー
+        let freezeTimer = null;
+        const TIMEOUT_MS = 30000; // 30秒間、進捗(%)に変化がなければエラーとする
+
+        function resetFreezeTimer() {
+            if (freezeTimer) clearTimeout(freezeTimer);
+            freezeTimer = setTimeout(() => {
+                alert("読み込みがタイムアウトしました（30秒間フリーズ）。\nファイルサイズが大きすぎるか、端末のメモリが不足している可能性があります。");
+                location.reload();
+            }, TIMEOUT_MS);
+        }
+
+        function stopFreezeTimer() {
+            if (freezeTimer) clearTimeout(freezeTimer);
+        }
 
         fileInput.addEventListener('change', function(event) {
             const file = event.target.files[0];
             if (!file) return;
 
+            // UIの切り替え
             uiContainer.style.display = 'none';
-            viewerContainer.style.display = 'block';
-            closeBtn.style.display = 'block';
-
+            loadingUi.style.display = 'flex';
+            
             const fileUrl = URL.createObjectURL(file);
             const extension = file.name.split('.').pop().toLowerCase();
             
-            // 拡張子からフォーマットを自動判定（SPZ対応）
             let format = GaussianSplats3D.SceneFormat.Ply;
-            if (extension === 'splat') {
-                format = GaussianSplats3D.SceneFormat.Splat;
-            } else if (extension === 'spz') {
-                // SPZ形式（Scaniverse標準の超圧縮形式）の指定
-                format = GaussianSplats3D.SceneFormat.Spz || 3;
-            }
+            if (extension === 'splat') format = GaussianSplats3D.SceneFormat.Splat;
+            else if (extension === 'spz') format = GaussianSplats3D.SceneFormat.Spz || 3;
 
-            // モバイル・iOSに特化したビューアーの初期化
             const viewer = new GaussianSplats3D.Viewer({
                 'rootElement': viewerContainer,
-                'cameraUp': [0, -1, -0.6], // Scaniverseの向きに合わせた初期角度
+                'cameraUp': [0, -1, -0.6],
                 'initialCameraPosition': [0, 0, 5],
                 'initialCameraLookAt': [0, 0, 0],
-                'sharedMemoryForWorkers': false, // iOS Safariでのエラー回避
+                'sharedMemoryForWorkers': false,
                 'gpuAcceleratedSort': true,
-                'halfPrecisionCovariancesOnGPU': true // メモリ節約（スマホ向け）
+                'halfPrecisionCovariancesOnGPU': true
             });
+
+            // ロード開始時にフリーズ監視をスタート
+            resetFreezeTimer();
 
             viewer.addSplatScene(fileUrl, {
                 'format': format,
-                'showLoadingUI': true,
-                'splatAlphaRemovalThreshold': 5 
+                'showLoadingUI': false, // 標準の分かりにくいUIを隠す
+                'splatAlphaRemovalThreshold': 5,
+                'onProgress': (progress) => {
+                    // ライブラリのバージョンによって progress が 0~1 か 0~100 で来るため補正
+                    let percentage = progress;
+                    if (progress <= 1 && progress > 0) percentage = progress * 100;
+                    
+                    // 画面の更新
+                    progressFill.style.width = percentage + '%';
+                    progressText.innerText = Math.round(percentage) + '%';
+                    
+                    // 進捗が動いている間は、フリーズ検知のタイマーをリセットして延命する
+                    resetFreezeTimer();
+                }
             })
             .then(() => {
+                // 読み込み完了
+                stopFreezeTimer();
+                loadingUi.style.display = 'none'; // プログレス画面を消す
+                viewerContainer.style.display = 'block';
+                closeBtn.style.display = 'block';
                 viewer.start();
             })
             .catch((error) => {
-                alert('読み込みに失敗しました。未対応の形式か、ファイルが破損している可能性があります。');
+                stopFreezeTimer();
+                alert('読み込みに失敗しました。未対応の形式か、データが破損している可能性があります。');
                 console.error(error);
                 location.reload();
             });
