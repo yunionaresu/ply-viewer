@@ -2,228 +2,110 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <!-- iPad/iPhoneでのピンチズーム（画面全体の拡大縮小）を防ぎ、3Dモデルの操作に集中させる設定 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>PLY Viewer</title>
+    <title>3D Gaussian Splat Viewer</title>
     <style>
         body {
-            margin: 0;
-            overflow: hidden;
-            background-color: #222;
-            color: #fff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0; overflow: hidden; background-color: #111; color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
-        canvas { display: block; }
-        
-        /* 起動時の全画面UI */
+        /* 起動時のUI */
         #ui-container {
-            position: absolute;
-            top: 0; left: 0; width: 100vw; height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            background-color: rgba(34, 34, 34, 0.95);
-            z-index: 10;
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background-color: rgba(17, 17, 17, 0.95); z-index: 10;
         }
         #file-input { display: none; }
         .btn {
-            padding: 20px 40px;
-            font-size: 20px;
-            font-weight: bold;
-            cursor: pointer;
-            background-color: #007aff;
-            color: white;
-            border: none;
-            border-radius: 12px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            transition: 0.2s;
+            padding: 20px 40px; font-size: 20px; font-weight: bold; cursor: pointer;
+            background-color: #ff2a5f; color: white; border: none; border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: 0.2s;
         }
-        .btn:active { background-color: #005bb5; }
+        .btn:active { background-color: #cc1e4a; }
         
-        #loading {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 20px;
-            display: none;
-            z-index: 5;
-        }
         #close-btn {
-            position: absolute;
-            top: 20px; right: 20px;
-            padding: 10px 20px;
-            font-size: 16px;
-            background-color: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            display: none;
-            z-index: 10;
-            backdrop-filter: blur(5px);
+            position: absolute; top: 20px; right: 20px; padding: 10px 20px; font-size: 16px;
+            background-color: rgba(255, 255, 255, 0.2); color: white; border: none;
+            border-radius: 8px; display: none; z-index: 10; backdrop-filter: blur(5px);
+        }
+        #viewer-container {
+            width: 100vw; height: 100vh; display: none;
         }
     </style>
 </head>
 <body>
     <div id="ui-container">
-        <!-- iOS向けにタップしやすい大きなボタンを用意 -->
-        <label for="file-input" class="btn">PLYファイルを選択して開く</label>
-        <input type="file" id="file-input" accept=".ply">
-        <p style="margin-top: 20px; color: #aaa; font-size: 14px;">iPad / iPhoneではボタンをタップしてください</p>
+        <!-- PLYだけでなく、Scaniverseが出力する .splat にも対応 -->
+        <label for="file-input" class="btn">立体写真(PLY / SPLAT)を開く</label>
+        <input type="file" id="file-input" accept=".ply,.splat">
+        <p style="margin-top: 20px; color: #aaa; font-size: 14px;">Scaniverse等でエクスポートしたファイルを選択</p>
     </div>
-    <div id="loading">読み込み中...</div>
+    
     <button id="close-btn" onclick="location.reload()">別のファイルを開く</button>
+    <div id="viewer-container"></div>
 
-    <!-- Three.js の読み込み (CDN経由) -->
+    <!-- Three.js と Gaussian Splats 3D ライブラリの読み込み -->
     <script type="importmap">
     {
         "imports": {
             "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            "@mkkellogg/gaussian-splats-3d": "https://unpkg.com/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js"
         }
     }
     </script>
 
     <script type="module">
-        import * as THREE from 'three';
-        import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
 
         const fileInput = document.getElementById('file-input');
         const uiContainer = document.getElementById('ui-container');
-        const loading = document.getElementById('loading');
+        const viewerContainer = document.getElementById('viewer-container');
         const closeBtn = document.getElementById('close-btn');
 
-        let scene, camera, renderer, controls;
-        let currentObject = null;
-
-        function init() {
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x222222);
-
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000);
-            camera.position.set(0, 0, 5);
-
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            // モバイル端末でのパフォーマンス維持のため、解像度倍率を最大2に制限
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
-            document.body.appendChild(renderer.domElement);
-
-            // 指紋操作（回転、パン、ピンチズーム）を有効化
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-
-            // ライト（照明）の設定
-            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
-            hemiLight.position.set(0, 1, 0);
-            scene.add(hemiLight);
-
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            dirLight.position.set(1, 1, 1);
-            scene.add(dirLight);
-
-            window.addEventListener('resize', onWindowResize);
-
-            animate();
-        }
-
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        function animate() {
-            requestAnimationFrame(animate);
-            controls.update();
-            renderer.render(scene, camera);
-        }
-
-        // ファイルが選択された時の処理
         fileInput.addEventListener('change', function(event) {
             const file = event.target.files[0];
             if (!file) return;
 
+            // UIを切り替え
             uiContainer.style.display = 'none';
-            loading.style.display = 'block';
+            viewerContainer.style.display = 'block';
+            closeBtn.style.display = 'block';
 
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const contents = e.target.result;
-                const loader = new PLYLoader();
-                
-                try {
-                    const geometry = loader.parse(contents);
-                    geometry.computeVertexNormals();
-                    geometry.computeBoundingBox();
+            // 端末のメモリ上でファイルを仮想URLに変換（通信は発生しないため高速）
+            const fileUrl = URL.createObjectURL(file);
 
-                    // モデルの最大サイズを測る
-                    const size = new THREE.Vector3();
-                    geometry.boundingBox.getSize(size);
-                    const maxDim = Math.max(size.x, size.y, size.z);
+            // ファイルの拡張子を判定してフォーマットを指定
+            const extension = file.name.split('.').pop().toLowerCase();
+            let format = GaussianSplats3D.SceneFormat.Ply;
+            if (extension === 'splat') {
+                format = GaussianSplats3D.SceneFormat.Splat;
+            }
 
-                    let object;
-                    // iPad等のLiDARスキャンデータ（点群のみ）を想定した分岐
-                    if (geometry.index === null) {
-                        // 面情報がない場合は「点群 (Point Cloud)」として描画
-                        const pointsMaterial = new THREE.PointsMaterial({
-                            size: maxDim * 0.005, // モデルサイズに合わせた点の大きさ
-                            color: 0xffffff
-                        });
-                        if (geometry.hasAttribute('color')) {
-                            pointsMaterial.vertexColors = true;
-                        }
-                        object = new THREE.Points(geometry, pointsMaterial);
-                    } else {
-                        // 面情報がある場合は「メッシュ (Mesh)」として描画
-                        const material = new THREE.MeshStandardMaterial({
-                            color: 0xcccccc,
-                            flatShading: true,
-                            side: THREE.DoubleSide
-                        });
-                        if (geometry.hasAttribute('color')) {
-                            material.vertexColors = true;
-                        }
-                        object = new THREE.Mesh(geometry, material);
-                    }
+            // ビューアーの初期化
+            const viewer = new GaussianSplats3D.Viewer({
+                'rootElement': viewerContainer,
+                'cameraUp': [0, 1, 0],
+                'initialCameraPosition': [0, 0, 5],
+                'initialCameraLookAt': [0, 0, 0],
+                // GitHub Pagesのような特殊なサーバー設定がない環境でも動かすためのセーフティ設定
+                'sharedMemoryForWorkers': false 
+            });
 
-                    if (currentObject) scene.remove(currentObject);
-
-                    // オブジェクトの座標を中心に移動
-                    const center = new THREE.Vector3();
-                    geometry.boundingBox.getCenter(center);
-                    object.position.sub(center);
-
-                    // カメラの位置をモデルのサイズに合わせて自動調整
-                    camera.position.set(0, 0, maxDim * 1.5);
-                    camera.near = maxDim * 0.01;
-                    camera.far = maxDim * 100;
-                    camera.updateProjectionMatrix();
-                    
-                    controls.target.set(0, 0, 0);
-                    controls.update();
-
-                    const group = new THREE.Group();
-                    group.add(object);
-                    scene.add(group);
-                    
-                    currentObject = group;
-                    closeBtn.style.display = 'block';
-
-                } catch (error) {
-                    alert('ファイルの読み込みに失敗しました。');
-                    console.error(error);
-                    uiContainer.style.display = 'flex';
-                } finally {
-                    loading.style.display = 'none';
-                    fileInput.value = ''; // リセット
-                }
-            };
-            reader.readAsArrayBuffer(file);
+            // 3DGSファイルの読み込みと描画
+            viewer.addSplatScene(fileUrl, {
+                'format': format,
+                'showLoadingUI': true,
+                'splatAlphaRemovalThreshold': 5 // 浮遊しているノイズなどを軽く除去
+            })
+            .then(() => {
+                viewer.start();
+            })
+            .catch((error) => {
+                alert('ファイルの読み込みに失敗しました。');
+                console.error(error);
+                location.reload();
+            });
         });
-
-        init();
 
         // 起動時に自動でダイアログを開く（PCブラウザ向け）
         window.addEventListener('DOMContentLoaded', () => {
