@@ -2,150 +2,478 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>3D Gaussian Splat Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Minimal Nav Meter</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: -apple-system, sans-serif; }
-        
-        /* 起動時のUI */
-        #ui-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: rgba(17, 17, 17, 0.95); z-index: 10; }
-        #file-input { display: none; }
-        .btn { padding: 20px 40px; font-size: 20px; font-weight: bold; cursor: pointer; background-color: #ff2a5f; color: white; border: none; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: 0.2s; }
-        .btn:active { background-color: #cc1e4a; }
-        
-        #close-btn { position: absolute; top: 20px; right: 20px; padding: 10px 20px; font-size: 16px; background-color: rgba(255, 255, 255, 0.2); color: white; border: none; border-radius: 8px; display: none; z-index: 10; backdrop-filter: blur(5px); cursor: pointer; }
-        #viewer-container { width: 100vw; height: 100vh; display: none; }
-
-        /* カスタムローディング画面 */
-        #loading-ui {
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-            background-color: rgba(17, 17, 17, 0.95); z-index: 20;
-            display: none; flex-direction: column; justify-content: center; align-items: center;
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-sub: #64748b;
+            --accent-color: #2563eb;
+            --accent-light: #eff6ff;
+            --alert-color: #f59e0b;
+            --alert-bg: #fef3c7;
+            --border-color: #e2e8f0;
         }
-        .progress-container { width: 70%; max-width: 400px; height: 12px; background-color: #333; border-radius: 6px; overflow: hidden; margin-top: 15px; }
-        .progress-fill { width: 0%; height: 100%; background-color: #4cd964; transition: width 0.1s ease; }
-        #progress-text { margin-top: 15px; font-size: 18px; font-weight: bold; color: #4cd964; font-variant-numeric: tabular-nums; }
-        #progress-message { margin-top: 10px; font-size: 13px; color: #888; text-align: center; }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 16px 20px;
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-main);
+            letter-spacing: -0.025em;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #cbd5e1;
+            border-radius: 50%;
+            display: inline-block;
+            transition: background-color 0.3s;
+        }
+        .status-dot.active {
+            background-color: #22c55e;
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 16px;
+            max-width: 500px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        /* 全体進捗インジケーター */
+        .progress-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px;
+        }
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: var(--text-sub);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        .progress-bar-bg {
+            width: 100%;
+            height: 8px;
+            background: var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            width: 0%;
+            height: 100%;
+            background: var(--accent-color);
+            border-radius: 4px;
+            transition: width 0.4s ease;
+        }
+
+        /* メイン方向＆残距離ディスプレイ */
+        .main-display {
+            flex: 1;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            position: relative;
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03);
+        }
+
+        .arrow-container {
+            width: 120px;
+            height: 120px;
+            background: var(--accent-light);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .direction-arrow {
+            font-size: 64px;
+            color: var(--accent-color);
+            line-height: 1;
+            transition: transform 0.2s ease;
+            display: inline-block;
+        }
+
+        .distance-group {
+            text-align: center;
+        }
+
+        .distance-value {
+            font-size: 3.2rem;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            color: var(--text-main);
+            line-height: 1.1;
+        }
+
+        .distance-unit {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--text-sub);
+            margin-left: 4px;
+        }
+
+        .destination-label {
+            margin-top: 8px;
+            font-size: 0.9rem;
+            color: var(--text-sub);
+            font-weight: 500;
+        }
+
+        /* 次の曲がり角インジケーター */
+        .turn-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        .turn-card.alert {
+            background-color: var(--alert-bg);
+            border-color: #fcd34d;
+            animation: pulse-border 1s infinite alternate;
+        }
+
+        @keyframes pulse-border {
+            0% { transform: scale(1); }
+            100% { transform: scale(1.01); }
+        }
+
+        .turn-info-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .turn-icon {
+            font-size: 2.2rem;
+            font-weight: bold;
+            color: var(--text-main);
+            width: 48px;
+            text-align: center;
+        }
+
+        .turn-card.alert .turn-icon {
+            color: #d97706;
+            animation: blink 0.6s infinite alternate;
+        }
+
+        @keyframes blink {
+            0% { opacity: 1; }
+            100% { opacity: 0.3; }
+        }
+
+        .turn-text-title {
+            font-size: 0.8rem;
+            color: var(--text-sub);
+            font-weight: 500;
+        }
+
+        .turn-text-distance {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        /* コントロール・設定エリア */
+        .controls {
+            padding: 12px 20px;
+            background: var(--card-bg);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-main);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:active {
+            background: var(--bg-color);
+        }
+
+        button.primary {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+        }
     </style>
 </head>
 <body>
-    <div id="ui-container">
-        <label for="file-input" class="btn">立体写真 (.spz / .splat) を開く</label>
-        <input type="file" id="file-input" accept=".ply,.splat,.spz">
-        <p style="margin-top: 20px; color: #aaa; font-size: 14px; text-align: center; line-height: 1.5;">
-            ※Scaniverseからの書き出しは<br><strong style="color: #4cd964;">SPZ (.spz) 形式</strong>を推奨します
-        </p>
+
+    <header>
+        <h1>Navigation</h1>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span id="statusText" style="font-size: 0.8rem; color: var(--text-sub);">待機中</span>
+            <span class="status-dot" id="statusDot"></span>
+        </div>
+    </header>
+
+    <main>
+        <!-- 全体進捗 -->
+        <div class="progress-card">
+            <div class="progress-label">
+                <span>全体進捗</span>
+                <span id="progressText">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+        </div>
+
+        <!-- メイン：方向と残距離 -->
+        <div class="main-display">
+            <div class="arrow-container">
+                <div class="direction-arrow" id="mainArrow">⇧</div>
+            </div>
+            <div class="distance-group">
+                <span class="distance-value" id="totalDistance">---</span>
+                <span class="distance-unit" id="totalUnit">m</span>
+            </div>
+            <div class="destination-label" id="destName">目的地未設定</div>
+        </div>
+
+        <!-- 次の曲がり角 -->
+        <div class="turn-card" id="turnCard">
+            <div class="turn-info-left">
+                <div class="turn-icon" id="turnIcon">直進</div>
+                <div>
+                    <div class="turn-text-title">次の曲がり角まで</div>
+                    <div class="turn-text-distance" id="turnDistance">--- m</div>
+                </div>
+            </div>
+            <div id="turnAction" style="font-size: 0.85rem; color: var(--text-sub); font-weight: 500;">---</div>
+        </div>
+    </main>
+
+    <div class="controls">
+        <button onclick="setSampleDestination()">サンプル目的地設定</button>
+        <button class="primary" onclick="toggleGPS()" id="gpsBtn">GPS開始</button>
     </div>
-    
-    <!-- 独自のプログレスバー画面 -->
-    <div id="loading-ui">
-        <div style="font-size: 22px; font-weight: bold; color: #fff;">データを処理中...</div>
-        <div class="progress-container"><div class="progress-fill" id="progress-fill"></div></div>
-        <div id="progress-text">0%</div>
-        <div id="progress-message">端末の性能によっては数分かかる場合があります。</div>
-    </div>
 
-    <button id="close-btn" onclick="location.reload()">別のファイルを開く</button>
-    <div id="viewer-container"></div>
-
-    <script type="importmap">
-    {
-        "imports": {
-            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-            "@mkkellogg/gaussian-splats-3d": "https://unpkg.com/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js"
-        }
-    }
-    </script>
-
-    <script type="module">
-        import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
-
-        const fileInput = document.getElementById('file-input');
-        const uiContainer = document.getElementById('ui-container');
-        const viewerContainer = document.getElementById('viewer-container');
-        const closeBtn = document.getElementById('close-btn');
+    <script>
+        // サンプルデータ・状態管理
+        let watchId = null;
+        let isRunning = false;
         
-        // ローディング用UI要素
-        const loadingUi = document.getElementById('loading-ui');
-        const progressFill = document.getElementById('progress-fill');
-        const progressText = document.getElementById('progress-text');
+        // 座標データ（シミュレーター用 / 実測用）
+        let startPos = null;
+        let currentPos = null;
+        let destPos = { lat: 35.078, lng: 135.987 }; // 仮の目的地
+        let totalInitialDistance = 0;
 
-        // フリーズ検知用タイマー
-        let freezeTimer = null;
-        const TIMEOUT_MS = 30000; // 30秒間、進捗(%)に変化がなければエラーとする
+        // 曲がり角データ（デモ用）
+        let nextTurn = { distance: 150, direction: '‹', text: '左折' }; // '‹' (左) または '›' (右)
 
-        function resetFreezeTimer() {
-            if (freezeTimer) clearTimeout(freezeTimer);
-            freezeTimer = setTimeout(() => {
-                alert("読み込みがタイムアウトしました（30秒間フリーズ）。\nファイルサイズが大きすぎるか、端末のメモリが不足している可能性があります。");
-                location.reload();
-            }, TIMEOUT_MS);
+        function setSampleDestination() {
+            // 現在地周辺にサンプル目的地を設定
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(position => {
+                    startPos = { lat: position.coords.latitude, lng: position.coords.longitude };
+                    // 少し離れた場所を目的地にする
+                    destPos = { lat: startPos.lat + 0.005, lng: startPos.lng + 0.005 };
+                    currentPos = startPos;
+                    
+                    totalInitialDistance = calcDistance(startPos.lat, startPos.lng, destPos.lat, destPos.lng);
+                    document.getElementById('destName').innerText = "目的地（サンプル）";
+                    updateUI(totalInitialDistance, 0);
+                    alert("サンプル目的地を設定しました。GPSを開始してください。");
+                }, () => {
+                    // GPS取得できない場合のフォールバック
+                    startPos = { lat: 35.0, lng: 135.0 };
+                    destPos = { lat: 35.01, lng: 135.01 };
+                    totalInitialDistance = calcDistance(startPos.lat, startPos.lng, destPos.lat, destPos.lng);
+                    document.getElementById('destName').innerText = "シミュレーション目的地";
+                    updateUI(totalInitialDistance, 0);
+                });
+            }
         }
 
-        function stopFreezeTimer() {
-            if (freezeTimer) clearTimeout(freezeTimer);
-        }
+        function toggleGPS() {
+            const btn = document.getElementById('gpsBtn');
+            const dot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
 
-        fileInput.addEventListener('change', function(event) {
-            const file = event.target.files[0];
-            if (!file) return;
+            if (!isRunning) {
+                if (!startPos) setSampleDestination();
+                
+                if (navigator.geolocation) {
+                    isRunning = true;
+                    btn.innerText = "GPS停止";
+                    btn.style.background = "#ef4444";
+                    dot.classList.add('active');
+                    statusText.innerText = "追跡中";
 
-            // UIの切り替え
-            uiContainer.style.display = 'none';
-            loadingUi.style.display = 'flex';
-            
-            const fileUrl = URL.createObjectURL(file);
-            const extension = file.name.split('.').pop().toLowerCase();
-            
-            let format = GaussianSplats3D.SceneFormat.Ply;
-            if (extension === 'splat') format = GaussianSplats3D.SceneFormat.Splat;
-            else if (extension === 'spz') format = GaussianSplats3D.SceneFormat.Spz || 3;
+                    watchId = navigator.geolocation.watchPosition(position => {
+                        const lat = position.coords.latitude;
+                        const lng = position.coords.longitude;
+                        currentPos = { lat, lng };
 
-            const viewer = new GaussianSplats3D.Viewer({
-                'rootElement': viewerContainer,
-                'cameraUp': [0, -1, -0.6],
-                'initialCameraPosition': [0, 0, 5],
-                'initialCameraLookAt': [0, 0, 0],
-                'sharedMemoryForWorkers': false,
-                'gpuAcceleratedSort': true,
-                'halfPrecisionCovariancesOnGPU': true
-            });
+                        // 距離計算
+                        const distToDest = calcDistance(lat, lng, destPos.lat, destPos.lng);
+                        
+                        // 方位計算（簡易）
+                        const bearing = calcBearing(lat, lng, destPos.lat, destPos.lng);
+                        // デバイスの向き（Heading）があれば反映、なければ簡易的に上向き
+                        const heading = position.coords.heading || 0;
+                        const relativeAngle = bearing - heading;
 
-            // ロード開始時にフリーズ監視をスタート
-            resetFreezeTimer();
+                        // 矢印の回転反映
+                        updateArrowRotation(relativeAngle);
 
-            viewer.addSplatScene(fileUrl, {
-                'format': format,
-                'showLoadingUI': false, // 標準の分かりにくいUIを隠す
-                'splatAlphaRemovalThreshold': 5,
-                'onProgress': (progress) => {
-                    // ライブラリのバージョンによって progress が 0~1 か 0~100 で来るため補正
-                    let percentage = progress;
-                    if (progress <= 1 && progress > 0) percentage = progress * 100;
-                    
-                    // 画面の更新
-                    progressFill.style.width = percentage + '%';
-                    progressText.innerText = Math.round(percentage) + '%';
-                    
-                    // 進捗が動いている間は、フリーズ検知のタイマーをリセットして延命する
-                    resetFreezeTimer();
+                        // 進捗計算
+                        const traversed = totalInitialDistance - distToDest;
+                        const progress = Math.min(100, Math.max(0, (traversed / totalInitialDistance) * 100));
+
+                        updateUI(distToDest, progress);
+
+                    }, err => {
+                        console.error(err);
+                        statusText.innerText = "GPSエラー";
+                    }, { enableHighAccuracy: true });
+                } else {
+                    alert("お使いのブラウザはGPSをサポートしていません。");
                 }
-            })
-            .then(() => {
-                // 読み込み完了
-                stopFreezeTimer();
-                loadingUi.style.display = 'none'; // プログレス画面を消す
-                viewerContainer.style.display = 'block';
-                closeBtn.style.display = 'block';
-                viewer.start();
-            })
-            .catch((error) => {
-                stopFreezeTimer();
-                alert('読み込みに失敗しました。未対応の形式か、データが破損している可能性があります。');
-                console.error(error);
-                location.reload();
-            });
-        });
+            } else {
+                isRunning = false;
+                if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+                btn.innerText = "GPS開始";
+                btn.style.background = "var(--accent-color)";
+                dot.classList.remove('active');
+                statusText.innerText = "停止中";
+            }
+        }
+
+        function updateUI(dist, progress) {
+            // 距離表示
+            let distStr = dist.toFixed(0);
+            let unitStr = "m";
+            if (dist >= 1000) {
+                distStr = (dist / 1000).toFixed(1);
+                unitStr = "km";
+            }
+            document.getElementById('totalDistance').innerText = distStr;
+            document.getElementById('totalUnit').innerText = unitStr;
+
+            // 進捗バー
+            document.getElementById('progressBar').style.width = progress + '%';
+            document.getElementById('progressText').innerText = progress.toFixed(0) + '%';
+
+            // 曲がり角の連動演出（近づいたらピコピコ光る）
+            // サンプルとして残距離に応じて曲がり角の距離を連動縮小
+            let turnDist = Math.max(0, parseInt(nextTurn.distance - (totalInitialDistance - dist)));
+            if (turnDist <= 0) {
+                turnDist = 120; // 次のコーナーへリセット
+                nextTurn.direction = nextTurn.direction === '‹' ? '›' : '‹';
+                nextTurn.text = nextTurn.direction === '‹' ? '左折' : '右折';
+            }
+
+            const turnCard = document.getElementById('turnCard');
+            const turnIcon = document.getElementById('turnIcon');
+            document.getElementById('turnDistance').innerText = turnDist + " m";
+            document.getElementById('turnAction').innerText = nextTurn.text;
+            turnIcon.innerText = nextTurn.direction;
+
+            // 30m以下に近づいたらアラート点滅
+            if (turnDist <= 30) {
+                turnCard.classList.add('alert');
+            } else {
+                turnCard.classList.remove('alert');
+            }
+        }
+
+        function updateArrowRotation(angleDeg) {
+            const arrow = document.getElementById('mainArrow');
+            arrow.style.transform = `rotate(${angleDeg}deg)`;
+        }
+
+        // 緯度経度から距離を計算 (Haversine法) - 単位: m
+        function calcDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const φ1 = lat1 * Math.PI/180;
+            const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180;
+            const Δλ = (lon2-lon1) * Math.PI/180;
+
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+            return R * c;
+        }
+
+        // 簡易方位角計算
+        function calcBearing(lat1, lon1, lat2, lon2) {
+            const y = Math.sin((lon2-lon1) * Math.PI/180) * Math.cos(lat2 * Math.PI/180);
+            const x = Math.cos(lat1 * Math.PI/180) * Math.sin(lat2 * Math.PI/180) -
+                      Math.sin(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.cos((lon2-lon1) * Math.PI/180);
+            let brng = Math.atan2(y, x) * 180 / Math.PI;
+            return (brng + 360) % 360;
+        }
+
+        // 初期ロード時にサンプルセット
+        window.onload = () => {
+            setSampleDestination();
+        };
     </script>
 </body>
 </html>
